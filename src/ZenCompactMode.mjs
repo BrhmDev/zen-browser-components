@@ -13,6 +13,8 @@ var gZenCompactModeManager = {
     XPCOMUtils.defineLazyPreferenceGetter(this, 'compactEnabled', 'zen.view.compact', false);
     XPCOMUtils.defineLazyPreferenceGetter(this, 'sidebarIsOnRight', 'zen.tabs.vertical.right-side', false);
     XPCOMUtils.defineLazyPreferenceGetter(this, 'flashDuration', 'zen.view.compact.toolbar-flash-popup.duration', 800);
+    XPCOMUtils.defineLazyPreferenceGetter(this, 'hideAfterHoverDuration',
+      'zen.view.compact.toolbar-hide-after-hover.duration', 800);
 
     this.addMouseActions();
     this.addContextMenu();
@@ -81,7 +83,7 @@ var gZenCompactModeManager = {
   },
 
   _disableTabsOnHoverIfConflict() {
-    if (Services.prefs.getBoolPref('zen.view.compact')
+    if (this.compactEnabled
       && Services.prefs.getBoolPref('zen.view.compact.hide-tabbar')) {
       Services.prefs.setBoolPref('zen.view.sidebar-expanded.on-hover', false);
     }
@@ -94,13 +96,6 @@ var gZenCompactModeManager = {
 
   toggleSidebar() {
     this.sidebar.toggleAttribute('zen-user-show');
-  },
-
-  get hideAfterHoverDuration() {
-    if (this._hideAfterHoverDuration) {
-      return this._hideAfterHoverDuration;
-    }
-    return Services.prefs.getIntPref('zen.view.compact.toolbar-hide-after-hover.duration');
   },
 
   get hoverableElements() {
