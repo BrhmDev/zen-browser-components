@@ -1,13 +1,3 @@
-
-const lazyCompactMode = {};
-
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazyCompactMode,
-  "COMPACT_MODE_FLASH_DURATION",
-  "zen.view.compact.toolbar-flash-popup.duration",
-  800
-);
-
 var gZenCompactModeManager = {
   _flashTimeouts: {},
   _evenListeners: [],
@@ -16,29 +6,16 @@ var gZenCompactModeManager = {
   init() {
     Services.prefs.addObserver('zen.view.compact', this._updateEvent.bind(this));
     Services.prefs.addObserver('zen.view.sidebar-expanded.on-hover', this._disableTabsOnHoverIfConflict.bind(this));
-    Services.prefs.addObserver('zen.tabs.vertical.right-side', this._updateSidebarIsOnRight.bind(this));
 
     gZenUIManager.addPopupTrackingAttribute(this.sidebar);
     gZenUIManager.addPopupTrackingAttribute(document.getElementById('zen-appcontent-navbar-container'));
 
+    XPCOMUtils.defineLazyPreferenceGetter(this, 'compactEnabled', 'zen.view.compact', false);
+    XPCOMUtils.defineLazyPreferenceGetter(this, 'sidebarIsOnRight', 'zen.tabs.vertical.right-side', false);
+    XPCOMUtils.defineLazyPreferenceGetter(this, 'flashDuration', 'zen.view.compact.toolbar-flash-popup.duration', 800);
+
     this.addMouseActions();
     this.addContextMenu();
-  },
-
-  get prefefence() {
-    return Services.prefs.getBoolPref('zen.view.compact');
-  },
-
-  set preference(value) {
-    Services.prefs.setBoolPref('zen.view.compact', value);
-    return value;
-  },
-
-  get sidebarIsOnRight() {
-    if (this._sidebarIsOnRight) {
-      return this._sidebarIsOnRight;
-    }
-    return Services.prefs.getBoolPref('zen.tabs.vertical.right-side');
   },
 
   get sidebar() {
@@ -91,7 +68,7 @@ var gZenCompactModeManager = {
 
   updateContextMenu() {
     document.getElementById('zen-context-menu-compact-mode-toggle')
-        .setAttribute('checked', Services.prefs.getBoolPref('zen.view.compact'));
+        .setAttribute('checked', this.compactEnabled);
 
     const hideTabBar = Services.prefs.getBoolPref('zen.view.compact.hide-tabbar');
     const hideToolbar = Services.prefs.getBoolPref('zen.view.compact.hide-toolbar');
@@ -111,11 +88,8 @@ var gZenCompactModeManager = {
   },
 
   toggle() {
-    return this.preference = !this.prefefence;
-  },
-
-  _updateSidebarIsOnRight() {
-    this._sidebarIsOnRight = Services.prefs.getBoolPref('zen.tabs.vertical.right-side');
+    Services.prefs.setBoolPref('zen.view.compact', !this.compactEnabled);
+    return this.compactEnabled;
   },
 
   toggleSidebar() {
@@ -142,7 +116,7 @@ var gZenCompactModeManager = {
     ];
   },
 
-  flashSidebar(duration = lazyCompactMode.COMPACT_MODE_FLASH_DURATION) {
+  flashSidebar(duration = this.flashDuration) {
     let tabPanels = document.getElementById('tabbrowser-tabpanels');
     if (!tabPanels.matches("[zen-split-view='true']")) {
       this.flashElement(this.sidebar, duration, this.sidebar.id);

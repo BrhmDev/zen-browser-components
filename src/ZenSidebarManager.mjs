@@ -14,6 +14,12 @@ var gZenBrowserManagerSidebar = {
   MAX_RUNS: 3,
 
   init() {
+    XPCOMUtils.defineLazyPreferenceGetter(this, "_sidebarDataPref",
+      'zen.sidebar.data', null, () => this._setSideBarData(arguments[2])
+    );
+    this._setSideBarData(this._sidebarDataPref);
+    XPCOMUtils.defineLazyPreferenceGetter(this, 'shouldCloseOnBlur', 'zen.sidebar.close-on-blur', true);
+
     this.update();
     this.close(); // avoid caching
     this.listenForPrefChanges();
@@ -21,16 +27,9 @@ var gZenBrowserManagerSidebar = {
     this.addPositioningListeners();
   },
 
-  get sidebarData() {
-    let services = Services.prefs.getStringPref('zen.sidebar.data');
-    if (services === '') {
-      return {};
-    }
-    return JSON.parse(services);
-  },
-
-  get shouldCloseOnBlur() {
-    return Services.prefs.getBoolPref('zen.sidebar.close-on-blur');
+  _setSideBarData(pref) {
+    if (pref === '') this.sidebarData = {};
+    this.sidebarData = JSON.parse(pref);
   },
 
   listenForPrefChanges() {

@@ -6,6 +6,8 @@ var gZenViewSplitter = new (class {
     this.__modifierElement = null;
     this.__hasSetMenuListener = false;
 
+    XPCOMUtils.defineLazyPreferenceGetter(this, 'minResizeWidth', 'zen.splitView.min-resize-width', 7);
+
     window.addEventListener('TabClose', this.handleTabClose.bind(this));
     this.initializeContextMenu();
     this.insertPageActionButton();
@@ -174,10 +176,6 @@ var gZenViewSplitter = new (class {
       this._tabBrowserPanel = document.getElementById('tabbrowser-tabpanels');
     }
     return this._tabBrowserPanel;
-  }
-
-  get minResizeWidth() {
-    return Services.prefs.getIntPref('zen.splitView.min-resize-width');
   }
 
   /**
