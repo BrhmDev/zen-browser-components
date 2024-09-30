@@ -8,17 +8,22 @@ const kZenStylesheetThemeHeader = `
 const kenStylesheetFooter = `
 /* End of Zen Themes */
 `;
+
 var gZenStylesheetManager = {
   async writeStylesheet(path, themes) {
     let content = kZenStylesheetThemeHeader;
+
     for (let theme of themes) {
-      if (!theme.enabled) {
+      if (theme.enabled !== undefined && !theme.enabled) {
         continue;
       }
       content += this.getThemeCSS(theme);
     }
+
     content += kenStylesheetFooter;
-    let buffer = new TextEncoder().encode(content);
+
+    const buffer = new TextEncoder().encode(content);
+
     await IOUtils.write(path, buffer);
   },
 
@@ -41,7 +46,20 @@ var gZenThemeImporter = new (class {
     try {
       window.SessionStore.promiseInitialized.then(async () => {
         this.insertStylesheet();
-        await this.writeToDom();
+
+        const themesWithPreferences = await Promise.all(
+          Object.values(await ZenThemesCommon.getThemes()).map(async (theme) => {
+            const preferences = await ZenThemesCommon.getThemePreferences(theme);
+
+            return {
+              name: theme.name,
+              enabled: theme.enabled,
+              preferences,
+            };
+          })
+        );
+
+        this.writeToDom(themesWithPreferences);
       });
       console.info('ZenThemeImporter: Zen theme imported');
     } catch (e) {
@@ -61,30 +79,8 @@ var gZenThemeImporter = new (class {
     return PathUtils.join(PathUtils.profileDir, 'chrome', 'zen-themes.css');
   }
 
-  get themesRootPath() {
-    return PathUtils.join(PathUtils.profileDir, 'chrome', 'zen-themes');
-  }
-
-  get themesDataFile() {
-    return PathUtils.join(PathUtils.profileDir, 'zen-themes.json');
-  }
-
-  getThemeFolder(theme) {
-    return PathUtils.join(this.themesRootPath, theme.id);
-  }
-
-  async getThemes() {
-    if (!this._themes) {
-      if (!(await IOUtils.exists(this.themesDataFile))) {
-        await IOUtils.writeJSON(this.themesDataFile, {});
-      }
-      this._themes = await IOUtils.readJSON(this.themesDataFile);
-    }
-    return this._themes;
-  }
-
   async rebuildThemeStylesheet() {
-    this._themes = null;
+    ZenThemesCommon.themes = null;
     await this.updateStylesheet();
   }
 
@@ -96,7 +92,7 @@ var gZenThemeImporter = new (class {
   }
 
   getStylesheetURIForTheme(theme) {
-    return Services.io.newFileURI(new FileUtils.File(PathUtils.join(this.getThemeFolder(theme), 'chrome.css')));
+    return Services.io.newFileURI(new FileUtils.File(PathUtils.join(ZenThemesCommon.getThemeFolder(theme.id), 'chrome.css')));
   }
 
   async insertStylesheet() {
@@ -110,88 +106,146 @@ var gZenThemeImporter = new (class {
   }
 
   async updateStylesheet() {
+    if (Services.focus.activeWindow !== window) {
+      return;
+    }
+
+    console.log('ZenThemeImporter: Updating Zen themes');
     await this.removeStylesheet();
-    await this.writeStylesheet();
-    await this.writeToDom();
+
+    const themes = Object.values(await ZenThemesCommon.getThemes());
+    await this.writeStylesheet(themes);
+
+    const themesWithPreferences = await Promise.all(
+      themes.map(async (theme) => {
+        const preferences = await ZenThemesCommon.getThemePreferences(theme);
+
+        return {
+          name: theme.name,
+          enabled: theme.enabled,
+          preferences,
+        };
+      })
+    );
+
+    this.setDefaults(themesWithPreferences);
+    this.writeToDom(themesWithPreferences);
+
     await this.insertStylesheet();
   }
 
-  _getBrowser() {
-    if (!this.__browser) {
-      this.__browser = Services.wm.getMostRecentWindow('navigator:browser');
-    }
+  setDefaults(themesWithPreferences) {
+    for (const { preferences, enabled } of themesWithPreferences) {
+      if (enabled !== undefined && !enabled) {
+        continue;
+      }
 
-    return this.__browser;
-  }
-
-  async _getThemePreferences(theme) {
-    const themePath = PathUtils.join(this.getThemeFolder(theme), 'preferences.json');
-
-    if (!(await IOUtils.exists(themePath)) || !theme.preferences) {
-      return { preferences: [], isLegacyMode: false };
-    }
-
-    let preferences = await IOUtils.readJSON(themePath);
-
-    // skip transformation, we won't be writing old preferences to dom, all of them can only be checkboxes
-    if (typeof preferences === 'object' && !Array.isArray(preferences)) {
-      return { preferences: [], areOldPreferences: true };
-    }
-
-    return { preferences, areOldPreferences: false };
-  }
-
-  async writeToDom() {
-    const browser = this._getBrowser();
-
-    for (const theme of Object.values(await this.getThemes())) {
-      const { preferences, areOldPreferences } = await this._getThemePreferences(theme);
-      const sanitizedName = `theme-${theme.name?.replaceAll(/\s/g, '-')?.replaceAll(/[^A-z_-]+/g, '')}`;
-
-      if (!theme.enabled) {
-        const element = browser.document.getElementById(sanitizedName);
-
-        if (element) {
-          element.remove();
+      for (const { type, property, defaultValue } of preferences) {
+        if (defaultValue === undefined) {
+          continue;
         }
 
-        continue;
-      }
+        switch (type) {
+          case 'checkbox': {
+            const value = Services.prefs.getBoolPref(property, false);
+            if (typeof defaultValue !== 'boolean') {
+              console.log(`[ZenThemesImporter]: Warning, invalid data type received for expected type boolean, skipping.`);
+              continue;
+            }
 
-      if (areOldPreferences) {
-        continue;
-      }
-
-      const themePreferences = preferences.filter(({ type }) => type === 'dropdown');
-
-      for (const { property } of themePreferences) {
-        const value = Services.prefs.getStringPref(property, '');
-
-        if (value !== '') {
-          let element = browser.document.getElementById(sanitizedName);
-
-          if (!element) {
-            element = browser.document.createElement('div');
-
-            element.style.display = 'none';
-            element.setAttribute('id', sanitizedName);
-
-            browser.document.body.appendChild(element);
+            if (!value) {
+              Services.prefs.setBoolPref(property, defaultValue);
+            }
+            break;
           }
 
-          element.setAttribute(property?.replaceAll(/\./g, '-'), value);
+          default: {
+            const value = Services.prefs.getStringPref(property, 'zen-property-no-saved');
+
+            if (typeof defaultValue !== 'string' && typeof defaultValue !== 'number') {
+              console.log(`[ZenThemesImporter]: Warning, invalid data type received (${typeof defaultValue}), skipping.`);
+              continue;
+            }
+
+            if (value === 'zen-property-no-saved') {
+              Services.prefs.setStringPref(property, defaultValue.toString());
+            }
+          }
         }
       }
     }
   }
 
-  async writeStylesheet() {
+  writeToDom(themesWithPreferences) {
+    for (const browser of ZenThemesCommon.browsers) {
+      for (const { enabled, preferences, name } of themesWithPreferences) {
+        const sanitizedName = `theme-${name?.replaceAll(/\s/g, '-')?.replaceAll(/[^A-z_-]+/g, '')}`;
+
+        if (enabled !== undefined && !enabled) {
+          const element = browser.document.getElementById(sanitizedName);
+
+          if (element) {
+            element.remove();
+          }
+
+          for (const { property } of preferences.filter(({ type }) => type !== 'checkbox')) {
+            const sanitizedProperty = property?.replaceAll(/\./g, '-');
+
+            browser.document.querySelector(':root').style.removeProperty(`--${sanitizedProperty}`);
+          }
+
+          continue;
+        }
+
+        for (const { property, type } of preferences) {
+          const value = Services.prefs.getStringPref(property, '');
+          const sanitizedProperty = property?.replaceAll(/\./g, '-');
+
+          switch (type) {
+            case 'dropdown': {
+              if (value !== '') {
+                let element = browser.document.getElementById(sanitizedName);
+
+                if (!element) {
+                  element = browser.document.createElement('div');
+
+                  element.style.display = 'none';
+                  element.setAttribute('id', sanitizedName);
+
+                  browser.document.body.appendChild(element);
+                }
+
+                element.setAttribute(sanitizedProperty, value);
+              }
+              break;
+            }
+
+            case 'string': {
+              if (value === '') {
+                browser.document.querySelector(':root').style.removeProperty(`--${sanitizedProperty}`);
+              } else {
+                browser.document.querySelector(':root').style.setProperty(`--${sanitizedProperty}`, value);
+              }
+              break;
+            }
+
+            default: {
+            }
+          }
+        }
+      }
+    }
+  }
+
+  async writeStylesheet(themeList) {
     const themes = [];
-    this._themes = null;
-    for (let theme of Object.values(await this.getThemes())) {
+    ZenThemesCommon.themes = null;
+
+    for (let theme of themeList) {
       theme._chromeURL = this.getStylesheetURIForTheme(theme).spec;
       themes.push(theme);
     }
+
     await gZenStylesheetManager.writeStylesheet(this.styleSheetPath, themes);
   }
 })();
