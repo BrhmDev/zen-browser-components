@@ -25,6 +25,14 @@ class SplitLeafNode {
   get widthInParent() {
     return this.parent.direction === 'row' ? this.sizeInParent : 100;
   }
+
+  get widthInRoot() {
+    return 100 - this.positionToRoot.left - this.positionToRoot.right;
+  }
+
+  get heightInRoot() {
+    return 100 - this.positionToRoot.top - this.positionToRoot.bottom;
+  }
 }
 
 class SplitNode extends SplitLeafNode {
@@ -67,6 +75,7 @@ class ZenViewSplitter extends ZenDOMOperatedFeature {
   _tabToSplitNode = new Map();
   dropZone;
   _edgeHoverSize;
+  _parentEdgeHoverSize = 3.5;
   minResizeWidth;
 
   init() {
@@ -346,11 +355,13 @@ class ZenViewSplitter extends ZenDOMOperatedFeature {
     if (!this.dropZone.hasAttribute('enabled')) {
       this.dropZone.setAttribute('enabled', true);
     }
-    const splitNode = this.getSplitNodeFromTab(tab);
 
+    const [hoverSide, splitNode] = this.calculateHoverNodeAndSide(
+      event.clientX, event.clientY,
+      this.getSplitNodeFromTab(tab),
+      this.getSplitNodeFromTab(this._draggingTab)
+    );
     const posToRoot = {...splitNode.positionToRoot};
-    const browserRect = browser.getBoundingClientRect();
-    const hoverSide = this.calculateHoverSide(event.clientX, event.clientY, browserRect);
 
     if (hoverSide !== 'center') {
       const isVertical = hoverSide === 'top' || hoverSide === 'bottom';
@@ -380,14 +391,70 @@ class ZenViewSplitter extends ZenDOMOperatedFeature {
     if (side === 'right') return 'left';
   }
 
-  calculateHoverSide(x, y, elementRect) {
-    const hPixelHoverSize = (elementRect.right - elementRect.left) * this._edgeHoverSize / 100;
-    const vPixelHoverSize = (elementRect.bottom - elementRect.top) * this._edgeHoverSize / 100;
+  calculateHoverSide(x, y, elementRect, edgeSize = this._edgeHoverSize) {
+    const hPixelHoverSize = (elementRect.right - elementRect.left) * edgeSize / 100;
+    const vPixelHoverSize = (elementRect.bottom - elementRect.top) * edgeSize / 100;
     if (x <= elementRect.left + hPixelHoverSize) return 'left';
     if (x > elementRect.right - hPixelHoverSize) return 'right';
     if (y <= elementRect.top + vPixelHoverSize) return 'top';
     if (y > elementRect.bottom - vPixelHoverSize) return 'bottom';
     return 'center';
+  }
+
+  /**
+   *
+   * @param x
+   * @param y
+   * @param {SplitNode} leafNode
+   * @return {(string|*)[]}
+   */
+  calculateHoverNodeAndSide(x, y, leafNode, insertNode) {
+    const rootRect = this.tabBrowserPanel.getBoundingClientRect();
+    const side = this.calculateHoverSide(x, y, this._getClientRect(leafNode, rootRect));
+    if (side === 'center') return [side, leafNode];
+
+    const validParents = [];
+    const direction = side === 'left' || side === 'right' ? 'row' : 'column';
+    const pos = side === 'top' || side === 'left' ? 0 : -1;
+    let prev = leafNode;
+    let current = leafNode.parent;
+    while(current) {
+      if (current.direction === direction && current.children.at(pos) !== prev) {
+        break;
+      }
+      if (current.direction !== direction && (current !== insertNode.parent || current.children.length > 2)) {
+        validParents.push(current);
+      }
+      prev = current;
+      current = current.parent;
+    }
+
+    const hoverSizePerParent= this._parentEdgeHoverSize / validParents.length;
+    for (let i = validParents.length - 1; i >= 0; i--) {
+      const side = this.calculateHoverSide(x, y,
+        this._getClientRect(validParents[i], rootRect),
+        (validParents.length - i) * hoverSizePerParent
+      );
+      if (side !== 'center') return [side,validParents[i]];
+    }
+    return [side, leafNode];
+  }
+
+  /**
+   * @param {SplitNode} node
+   * @param rootRect
+   * @return {{top: number, left: number, bottom: number, right: number}}
+   * @private
+   */
+  _getClientRect(node, rootRect = this.tabBrowserPanel.getBoundingClientRect()) {
+    const rootWidth = (rootRect.right - rootRect.left);
+    const rootHeight = (rootRect.bottom - rootRect.top);
+    return {
+      top: rootRect.top + node.positionToRoot.top * rootHeight / 100,
+      bottom : rootRect.bottom - node.positionToRoot.bottom * rootHeight / 100,
+      left: rootRect.left + node.positionToRoot.left * rootWidth / 100,
+      right: rootRect.right - node.positionToRoot.right * rootWidth / 100,
+    };
   }
 
   onBrowserDrop = (event) => {
@@ -401,9 +468,12 @@ class ZenViewSplitter extends ZenDOMOperatedFeature {
     );
     if (droppedTab === droppedOnTab) return;
 
-    const hoverSide = this.calculateHoverSide(event.clientX, event.clientY, browserDroppedOn.getBoundingClientRect());
     const droppedSplitNode = this.getSplitNodeFromTab(droppedTab);
-    const droppedOnSplitNode = this.getSplitNodeFromTab(droppedOnTab);
+
+    const [hoverSide, droppedOnSplitNode] = this.calculateHoverNodeAndSide(event.clientX, event.clientY,
+      this.getSplitNodeFromTab(droppedOnTab),
+      droppedSplitNode
+    );
     if (hoverSide === 'center') {
       this.swapNodes(droppedSplitNode, droppedOnSplitNode);
       this.applyGridLayout(this._data[this.currentView].layoutTree);
