@@ -750,7 +750,7 @@ class ZenViewSplitter extends ZenDOMOperatedFeature {
 
     this.setTabsDocShellState(splitData.tabs, true);
     this.updateSplitViewButton(false);
-    this.applyGridToTabs(splitData.tabs);
+    this.applyGridToTabs(splitData.tabs, splitData.id);
     this.applyGridLayout(splitData.layoutTree);
   }
 
@@ -784,9 +784,10 @@ class ZenViewSplitter extends ZenDOMOperatedFeature {
    * @param {Tab[]} tabs - The tabs to apply the grid layout to.
    * @param {Tab} activeTab - The active tab.
    */
-  applyGridToTabs(tabs) {
+  applyGridToTabs(tabs, groupId) {
     tabs.forEach((tab, index) => {
       tab.splitView = true;
+      tab.splitId = groupId;
       const container = tab.linkedBrowser.closest('.browserSidebarContainer');
       this.styleContainer(container);
     });
@@ -1150,6 +1151,16 @@ class ZenViewSplitter extends ZenDOMOperatedFeature {
       ? gBrowser.selectedTabs
       : [gBrowser.selectedTab, tabs[nextTabIndex]];
     this.splitTabs(selected_tabs, gridType);
+  }
+
+
+  getGroup(id) {
+    return Object.values(gZenViewSplitter._data).find(g => g.id === id);
+  }
+
+  getGroupFromTab(tab) {
+    if (!tab.splitView) return;
+    return this.getGroup(tab.splitId);
   }
 }
 
