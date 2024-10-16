@@ -68,6 +68,7 @@ class ZenViewSplitter extends ZenDOMOperatedFeature {
   dropZone;
   _edgeHoverSize;
   minResizeWidth;
+  totalSplitsCreated = 0;
 
   init() {
     XPCOMUtils.defineLazyPreferenceGetter(this, 'canChangeTabOnHover', 'zen.splitView.change-on-hover', false);
@@ -493,6 +494,7 @@ class ZenViewSplitter extends ZenDOMOperatedFeature {
   resetTabState(tab, forUnsplit) {
     tab.splitView = false;
     tab.linkedBrowser.zenModeActive = false;
+    tab.removeAttribute('zen-split');
     const container = tab.linkedBrowser.closest('.browserSidebarContainer');
     this.resetContainerStyle(container);
     container.removeEventListener('click', this.handleTabEvent);
@@ -662,7 +664,7 @@ class ZenViewSplitter extends ZenDOMOperatedFeature {
         for (const tab of tabs) {
           if (!group.tabs.includes(tab)) {
             group.tabs.push(tab);
-            this.addTabToSplit(tab, group.layoutTree);
+            this.addTabToSplit(tab, group);
           }
         }
       }
@@ -675,13 +677,19 @@ class ZenViewSplitter extends ZenDOMOperatedFeature {
       tabs,
       gridType,
       layoutTree: this.calculateLayoutTree(tabs, gridType),
+      id: this.totalSplitsCreated++,
     }
+    this.styleTabs(tabs, splitData.id);
     this._data.push(splitData);
     window.gBrowser.selectedTab = tabs[0];
     this.activateSplitView(splitData);
   }
 
-  addTabToSplit(tab, splitNode) {
+  addTabToSplit(tab, group) {
+    this.styleTab(tab, group.id);
+    this.addTabToSplitNode(tab, group.layoutTree);
+  }
+  addTabToSplitNode(tab, splitNode) {
     const reduce = splitNode.children.length / (splitNode.children.length + 1);
     splitNode.children.forEach(c => c.sizeInParent *= reduce);
     splitNode.addChild(new SplitLeafNode(tab, (1 - reduce) * 100));
@@ -891,6 +899,15 @@ class ZenViewSplitter extends ZenDOMOperatedFeature {
     container.setAttribute('zen-split-anim', 'true');
     container.addEventListener('click', this.handleTabEvent);
     container.addEventListener('mouseover', this.handleTabEvent);
+  }
+
+  styleTab(tab, groupId) {
+    tab.setAttribute('zen-split', true);
+    tab.style.setProperty('--zen-split-id', groupId);
+  }
+
+  styleTabs(tabs, groupId) {
+    tabs.forEach(tab => this.styleTab(tab, groupId));
   }
 
   /**
